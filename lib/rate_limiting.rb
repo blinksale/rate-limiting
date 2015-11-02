@@ -29,7 +29,7 @@ class RateLimiting
     else
       message, type  = ["Rate Limit Exceeded"], "text/html"
     end
-    [403, {"Content-Type" => type}, message]
+    [503, {"Content-Type" => type}, message]
   end
 
   def define_rule(options)
