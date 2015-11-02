@@ -123,6 +123,7 @@ class RateLimiting
           response = get_header(times + 1, reset, rule.limit)
         else
           logger.debug "[#{self}] #{request.ip}:#{request.path}: Rate limited; request rejected."
+          cache_set(key, "#{times + 1}:#{(reset + rule.get_lockout_period).to_i}")
           return false
         end
       else

@@ -8,7 +8,8 @@ class Rule
       :limit => 100,
       :per_ip => true,
       :per_url => false,
-      :token => false
+      :token => false,
+      :timeout => 3600
     }
     @options = default_options.merge(options)
 
@@ -20,6 +21,10 @@ class Rule
 
   def limit
     (@options[:type] == :frequency ? 1 : @options[:limit])
+  end
+
+  def get_lockout_period
+    @options[:timeout] || 3600
   end
 
   def get_expiration
