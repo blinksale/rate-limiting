@@ -111,38 +111,59 @@ class RateLimiting
 
   def apply_rule(request, rule)
     key = rule.get_key(request)
+
     if cache_has?(key)
-      record = cache_get(key)
-      logger.debug "[#{self}] #{request.ip}:#{request.path}: Rate limiting entry: '#{key}' => #{record}"
-      if (reset = Time.at(record.split(':')[1].to_i)) > Time.now
-        # rule hasn't been reset yet
-        times = record.split(':')[0].to_i
-        cache_set(key, "#{times + 1}:#{reset.to_i}")
-        if (times) < rule.limit
-          # within rate limit
-          response = get_header(times + 1, reset, rule.limit)
-        else
-          logger.debug "[#{self}] #{request.ip}:#{request.path}: Rate limited; request rejected."
-          cache_set(key, "#{times + 1}:#{(reset + rule.get_lockout_period).to_i}")
-          return false
-        end
-      else
-        response = get_header(1, rule.get_expiration, rule.limit)
-        cache_set(key, "1:#{rule.get_expiration.to_i}")
-      end
+      update_rule_counter(key, rule)
     else
-      response = get_header(1, rule.get_expiration, rule.limit)
-      cache_set(key, "1:#{rule.get_expiration.to_i}")
+      initialize_rule_counter(key, rule)
     end
-    response
   end
 
-  def get_header(times, reset, limit)
+  def header_to_return(times, reset, limit)
     {'x-RateLimit-Limit' => limit.to_s, 'x-RateLimit-Remaining' => (limit - times).to_s, 'x-RateLimit-Reset' => reset.strftime("%d%m%y%H%M%S") }
   end
 
   def xml_error(code, message)
     "<?xml version=\"1.0\"?>\n<error>\n  <code>#{code}</code>\n  <message>#{message}</message>\n</error>"
+  end
+
+  def initialize_rule_counter(key, rule)
+    rule_expiration_timestamp = rule.get_expiration
+
+    set_cache_value(key, 1, rule_expiration_timestamp)
+    header_to_return(1, rule_expiration_timestamp, rule.limit)
+  end
+
+  def update_rule_counter(key, rule)
+    record = cache_get(key)
+    rule_reset_timestamp = Time.at(record.split(':')[1].to_i)
+
+    if rule_reset_timestamp > Time.now
+      increase_rule_counter(key, rule, rule_reset_timestamp, record)
+    else
+      reset_rule_counter(key, rule)
+      header_to_return(1, rule.get_expiration, rule.limit)
+    end
+  end
+
+  def increase_rule_counter(key, rule, rule_reset_timestamp, record)
+    existing_hits = record.split(':')[0].to_i
+    set_cache_value(key, existing_hits + 1, rule_reset_timestamp)
+
+    if existing_hits < rule.limit
+      header_to_return(existing_hits + 1, rule_reset_timestamp, rule.limit)
+    else
+      set_cache_value(key, existing_hits, Time.now + rule.get_lockout_period)
+      return false
+    end
+  end
+
+  def reset_rule_counter(key, rule)
+    set_cache_value(key, 1, rule.get_expiration)
+  end
+
+  def set_cache_value(key, counter, expiration_timestamp)
+    cache_set(key, "#{counter}:#{expiration_timestamp.to_i}")
   end
 
 end
